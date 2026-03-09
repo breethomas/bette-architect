@@ -45,22 +45,34 @@ That's it. Start a new session. Bette is there.
 
 ### First-Use Experience
 
-On first session after install, the SessionStart hook detects no existing Bette setup and triggers interactive onboarding:
+On first session after install, the SessionStart hook detects no existing Bette setup and offers two paths:
 
 ```
-Bette: "I'm Bette — your PM operating system. Let's get you set up.
-        This takes about 5 minutes. I'll ask questions, you answer,
-        and I'll generate your context files.
+Bette: "I'm Bette — your PM operating system. How do you want to get started?
 
-        First: What's your role?"
+        1. 'Set me up' — I'll ask a few questions and build your
+           environment. Takes about 5 minutes.
 
-User:   "VP Product at a SaaS company"
+        2. 'I'll configure myself' — I'll show you what's available
+           and get out of the way."
+```
 
-Bette: "Got it. Do you manage people directly?"
+#### Path 1: "Set me up" (Designers, non-technical PMs, "just make it work")
 
-User:   "Yes, 4 direct reports"
+Full guided onboarding. Bette asks questions, generates everything, offers to connect integrations, enables all relevant modules.
 
-Bette: "What tools does your team use? (Slack, Notion, Linear, GitHub, etc.)"
+```
+Bette: "What's your role?"
+User:  "VP Product at a SaaS company"
+
+Bette: "Do you manage people directly?"
+User:  "Yes, 4 direct reports"
+
+Bette: "What tools does your team use?"
+User:  "Slack, Notion, Linear"
+
+Bette: "Do you write code, or just manage the people who do?"
+User:  "I code sometimes on side projects"
 
 ...
 
@@ -70,10 +82,40 @@ Bette: "Here's what I've set up:
         ✓ People reference (4 direct reports — fill in details)
         ✓ Domains reference (template ready for your product areas)
         ✓ Backlog and goals files
-        ✓ 52 skills loaded (PM frameworks, daily ops, quality gates)
+        ✓ PM framework skills enabled (think)
+        ✓ Daily workflow skills enabled (operate)
+        ✓ Coding guardrails enabled (work)
+        ✓ Slack, Notion, Linear — ready to connect when you want
 
         Say 'catch me up' to start your day, or ask me anything."
 ```
+
+Takes the user from Ad Hoc to Planned in 5 minutes.
+
+#### Path 2: "I'll configure myself" (Engineers, technical PMs, power users)
+
+Installs the plugin, shows the module map, and gets out of the way. Think skills are active by default (zero config). Everything else is opt-in.
+
+```
+Bette: "You've got 60 skills across 4 modules. Here's the map:
+
+        architect — Context engineering (setup, health-check, reference-gen)
+        think     — PM frameworks, 30 skills (active now)
+        work      — Quality gates, session management, test-first
+        operate   — Daily ops: inbox, meetings, backlog, comms
+
+        Enable modules:  'bette enable operate'
+        See all skills:  '/skills'
+        Read the docs:   github.com/breethomas/bette-architect
+
+        Or just start talking. I'll route to the right skill."
+```
+
+The underlying architecture is identical. The difference is how much the setup does for you.
+
+#### The Repos as Documentation
+
+The four repos (bette-architect, bette-think, bette-work, bette-os) stay published. They're the educational layer — they explain WHY things work the way they do. The cookbook. The `bette` plugin is the restaurant. Users who want to understand the architecture read the repos. Users who want to work install the plugin.
 
 ### Ongoing Experience
 
@@ -226,19 +268,25 @@ Inspired by superpowers' `using-superpowers` pattern but adapted for PM workflow
 - Can the setup skill write files outside the plugin directory (to create user's CLAUDE.md, reference files)?
 - How do personal skill overrides work with a unified plugin? (superpowers has this — need to verify)
 
-### Skill organization
-- Do users need to know which module a skill belongs to? Or is flat routing (just skill names) better?
-- Should `operate` skills ship by default or be opt-in? (Not every PM needs inbox triage — some just want frameworks)
+### Skill organization — PARTIALLY RESOLVED
+- Modular architecture: skills organized by module (architect, think, work, operate)
+- Routing is flat — user says what they need, meta-skill finds the right skill regardless of module
+- Think ships active by default (zero config, no integrations needed)
+- Operate is opt-in (requires MCP integrations)
+- Work is opt-in (relevant for PMs who code)
+- Architect is always available (setup + health-check)
+- Open: should users be able to enable/disable individual skills, or only whole modules?
 
 ### MCP integrations
 - The operate skills depend on Slack, Gmail, Google Calendar, Notion, Linear MCPs
 - These require user-specific API keys and auth
 - Setup flow needs to handle: "Want to connect Slack? Here's how" without blocking users who don't have those tools
 
-### Scope of onboarding
-- How much should setup generate vs. leave as templates?
-- Should setup ask about tool integrations (Slack, Linear) or defer that?
-- How opinionated should the generated CLAUDE.md be?
+### Scope of onboarding — RESOLVED
+- Two paths: "set me up" (full generation) and "I'll configure myself" (modules + docs)
+- "Set me up" asks about integrations, generates opinionated CLAUDE.md
+- "I'll configure myself" activates think by default, everything else opt-in
+- Both paths produce the same underlying architecture
 
 ### Brand and existing users
 - bette-think has 2 forks, 5 stars — small but nonzero community
