@@ -129,26 +129,39 @@ After setup, every session:
 
 ## Architecture
 
+### Technical Constraints (Plugin System Beta)
+
+The Claude Code plugin system is in public beta. Key findings from research:
+
+**What works:**
+- Skills auto-discover from `skills/` directories (no registration needed)
+- Progressive disclosure: only skill descriptions load into context, full content on invoke
+- Personal skills (`~/.claude/skills/`) shadow plugin skills by name
+- `context: fork` supported for heavy/isolated skills
+- Skills can direct Claude to write files anywhere (CLAUDE.md, reference files, etc.)
+- Plugins can be enabled/disabled with `/plugin enable|disable`
+
+**What's broken (as of March 2026):**
+- **Plugin SessionStart hook output is silently discarded** (issue #12151) — hooks run but Claude never sees the output
+- **First-run timing bug** (issue #10997) — marketplace plugin hooks fail on first session
+- Non-plugin hooks (in `~/.claude/settings.json`) work reliably
+
+**Architectural decision: Hybrid bootstrap.**
+The `/bette-setup` skill generates a SessionStart hook in `~/.claude/settings.json` (not in the plugin) during onboarding. This gives users the auto-bootstrap experience using the reliable non-plugin hook path. When Anthropic fixes plugin hook bugs, the hook moves into the plugin and setup stops generating it externally.
+
 ### Plugin Structure
 
 ```
 bette/
 ├── .claude-plugin/
-│   ├── marketplace.json          # Marketplace config
-│   └── hooks/
-│       └── session-start.js      # Bootstrap hook — loads meta-skill
+│   └── marketplace.json          # Marketplace config
 ├── plugins/
 │   └── bette/
 │       ├── .claude-plugin/
 │       │   └── plugin.json       # Plugin manifest
-│       ├── meta/
-│       │   ├── SKILL.md          # Meta-skill: routing + skill discovery
-│       │   └── setup.md          # First-use onboarding flow
 │       ├── skills/
-│       │   ├── architect/        # Context engineering skills
-│       │   │   ├── setup/SKILL.md        # Interactive environment setup
-│       │   │   ├── health-check/SKILL.md # Audit context architecture
-│       │   │   └── reference-gen/SKILL.md # Generate/update reference files
+│       │   ├── bette-setup/SKILL.md    # First-use onboarding (generates external hook)
+│       │   ├── bette-health/SKILL.md   # Audit context architecture
 │       │   ├── think/            # PM framework skills (from bette-think)
 │       │   │   ├── strategy-session/SKILL.md
 │       │   │   ├── four-risks/SKILL.md
@@ -190,44 +203,60 @@ bette/
 
 | Module | Source Repo | Skills | Purpose |
 |--------|-----------|--------|---------|
-| `architect` | bette-architect | 3 (setup, health-check, reference-gen) | Build and maintain context architecture |
-| `think` | bette-think | 30 | PM frameworks, strategic sparring |
-| `work` | bette-work | 3 | Quality gates, session management, test-first |
-| `operate` | bette-os | 22 | Daily workflows: inbox, meetings, backlog, comms |
-| `meta` | new | 2 | Routing + first-use onboarding |
+| `(root)` | new | 2 (bette-setup, bette-health) | Onboarding + architecture audit |
+| `think/` | bette-think | 30 | PM frameworks, strategic sparring |
+| `work/` | bette-work | 3 | Quality gates, session management, test-first |
+| `operate/` | bette-os | 22 | Daily workflows: inbox, meetings, backlog, comms |
 
-**Total: ~60 skills, 7 agents**
+**Total: ~57 skills, 7 agents**
+
+Modules are directory organization for maintainability. Users never reference modules — they reference skill names. Claude Code discovers all skills regardless of nesting depth.
 
 ### Bootstrap Flow
 
+**Before setup (first install):**
+```
+User installs plugin → starts session → no hook exists yet
+  │
+  └── User runs /bette-setup (or types "set me up")
+        │
+        ├── Interactive onboarding (Path 1 or Path 2)
+        ├── Generates CLAUDE.md, reference files, project structure
+        ├── Generates SessionStart hook in ~/.claude/settings.json
+        └── "Restart your session. Bette will be there."
+```
+
+**After setup (every subsequent session):**
 ```
 Session starts
   │
-  ├── SessionStart hook fires
-  │     └── Loads meta/SKILL.md into context
+  ├── SessionStart hook fires (from ~/.claude/settings.json — reliable path)
+  │     └── Injects Bette meta-context into session
   │
-  ├── Meta-skill checks: has user run setup?
-  │     ├── No → Trigger meta/setup.md (onboarding)
-  │     └── Yes → Ready to route
-  │
-  └── User speaks → meta-skill routes to correct skill
-        ├── "catch me up" → operate/catchup
-        ├── "prep for my 1:1 with Carol" → operate/prep-1on1
-        ├── "help me think through this feature" → think/strategy-session
-        ├── "check my context architecture" → architect/health-check
-        └── "quality gates before I push" → work/quality-gates
+  └── User speaks → Claude routes to correct skill via plugin
+        ├── "catch me up" → bette:catchup
+        ├── "prep for my 1:1 with Carol" → bette:prep-1on1
+        ├── "help me think through this feature" → bette:strategy-session
+        ├── "check my context setup" → bette:bette-health
+        └── "quality gates before I push" → bette:quality-gates
 ```
 
-### The Meta-Skill
+### Routing
 
-The meta-skill is the brain. Loaded every session via hook, it:
-- Knows every available skill (name + one-line description + trigger patterns)
-- Routes natural language to the right skill
-- Handles ambiguity ("did you mean X or Y?")
-- Provides `/skills` command to list everything
-- Detects when no skill matches and falls back to general conversation
+Claude Code's native skill system handles routing. Skills declare trigger patterns in their YAML frontmatter `description` field. Claude matches natural language to skill descriptions automatically — no custom router needed.
 
-Inspired by superpowers' `using-superpowers` pattern but adapted for PM workflows, not just coding.
+The SessionStart hook's job is simpler than originally planned:
+- Inject Bette identity and working preferences into session context
+- Load the user's CLAUDE.md (which references their reference files)
+- No need for a custom meta-skill router — Claude Code does this natively
+
+This is leaner and more aligned with Anthropic's official architecture. The plugin ships skills with good descriptions. Claude Code discovers and routes to them. The hook provides session-level context.
+
+### Skill Namespacing
+
+All skills are invocable as `/bette:skill-name` (plugin namespace). Claude also matches natural language without the prefix. Users can override any skill by placing a same-named skill in `~/.claude/skills/` (personal skills take priority over plugin skills).
+
+**Module organization is internal, not user-facing.** The `skills/` directory is organized by module (think/, work/, operate/) for maintainability, but users don't need to know which module a skill belongs to. They just talk or type `/bette:skill-name`.
 
 ---
 
@@ -263,10 +292,12 @@ Inspired by superpowers' `using-superpowers` pattern but adapted for PM workflow
 
 ## Open Questions
 
-### Plugin system capabilities
-- Can a SessionStart hook reliably detect "first use" vs "returning user"?
-- Can the setup skill write files outside the plugin directory (to create user's CLAUDE.md, reference files)?
-- How do personal skill overrides work with a unified plugin? (superpowers has this — need to verify)
+### Plugin system capabilities — RESOLVED
+- **SessionStart hook in plugin is broken** (issue #12151). Workaround: `/bette-setup` generates the hook in `~/.claude/settings.json` where it works reliably.
+- **First-use detection:** Hook checks for a marker file (e.g., `~/.claude/.bette-configured`). No marker = suggest running `/bette-setup`.
+- **File writing:** Skills direct Claude to use normal tools (Write, Edit). No sandbox on file creation. Setup can write CLAUDE.md, reference files, anywhere.
+- **Personal skill overrides:** `~/.claude/skills/skill-name/SKILL.md` shadows `bette:skill-name` automatically. User can force plugin version with `bette:skill-name` prefix.
+- **Routing:** Claude Code's native skill discovery handles routing via YAML frontmatter descriptions. No custom meta-skill router needed.
 
 ### Skill organization — PARTIALLY RESOLVED
 - Modular architecture: skills organized by module (architect, think, work, operate)
